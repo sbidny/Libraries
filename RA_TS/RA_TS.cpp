@@ -31,6 +31,10 @@ void RA_TS::Init()
 	orientation=1;
 	CalibrationNeeded=false;
 #ifdef TOUCHCAP
+	digitalWrite(i2cEnable1,LOW);
+	digitalWrite(i2cEnable2,HIGH);
+	last_touch=millis();
+	first_touch=true;
 	if ((readRegister8(FT6206_REG_VENDID) != 17) || (readRegister8(FT6206_REG_CHIPID) != 6))
 	{
 		Serial.println(F("Unknown Touch controller"));
@@ -41,6 +45,8 @@ void RA_TS::Init()
 		writeRegister8(FT6206_REG_THRESHOLD, FT6206_CUSTOM_THRESHOLD);
 		writeRegister8(FT6206_REG_G_MODE, FT6206_INT_POLLING);
 	}
+	digitalWrite(i2cEnable1,HIGH);
+	digitalWrite(i2cEnable2,LOW);
 #else // TOUCHCAP
 	ApplyCalibration();
 #endif // TOUCHCAP
@@ -91,11 +97,32 @@ void RA_TS::SaveCalibration()
 boolean RA_TS::GetTouch()
 {
 #ifdef TOUCHCAP
+	if (first_touch)
+	{
+		first_touch=false;
+		last_touch=millis();
+		// Serial.println("Touch");
+	}
+	if ((millis()-last_touch)>5000)
+	{
+		// Serial.println("Reset Touch");
+		digitalWrite(i2cEnable1,HIGH);
+		digitalWrite(i2cEnable2,LOW);
+		// Serial.println("I2C Enabled");
+		return false;
+	}
 	digitalWrite(i2cEnable1,LOW);
 	digitalWrite(i2cEnable2,HIGH);
+	// Serial.println("I2C Disabled");
 	X = Y = 0;
 	uint8_t n = readRegister8(FT6206_REG_NUMTOUCHES);
-	if ((n == 0) || (n > 2)) return false;
+	if ((n == 0) || (n > 2))
+	{
+		digitalWrite(i2cEnable1,HIGH);
+		digitalWrite(i2cEnable2,LOW);
+		// Serial.println("I2C Enabled");
+		return false;
+	}
 	
 	uint8_t i2cdat[16];
 	enableI2CChannel1();
@@ -111,6 +138,7 @@ boolean RA_TS::GetTouch()
 	touches = i2cdat[0x02];
 	digitalWrite(i2cEnable1,HIGH);
 	digitalWrite(i2cEnable2,LOW);
+	// Serial.println("I2C Enabled");
 	
 	if ((touches == 0) || (touches > 2))
 	{
@@ -294,9 +322,14 @@ boolean RA_TS::IsTouched()
 	boolean t=!digitalRead(TPINTPin);
 #endif // defined RA_TOUCH || defined RA_TOUCHDISPLAY	
 	if (t) 
+	{
 		t=GetTouch();
+	}
 	else
+	{
 		X = Y = 0;
+		first_touch=true;
+	}
 	return t;
 }
 
